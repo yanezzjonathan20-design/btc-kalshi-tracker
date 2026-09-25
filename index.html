@@ -35,7 +35,7 @@ h1{font-size:29px;margin:0}.sub{color:var(--muted);margin-top:5px}.pill{padding:
 <div class="row"><span>Contract</span><strong id="ticker">—</strong></div>
 <div class="row"><span>Kalshi data updated</span><strong id="updated">—</strong></div>
 </div><button id="refresh" type="button">Refresh Kalshi data</button><div id="error" class="err"></div></section>
-<div class="note">Kalshi is checked directly every 2 seconds. When the contract expires, the tracker immediately switches to the next open KXBTC15M contract and resets the 15-minute baseline. The signal is a heuristic, not a guarantee.</div>
+<div class="note">The page refreshes the published Kalshi feed every 2 seconds. Kalshi market data is published by the server-side updater, and the tracker resets the 15-minute baseline when the contract changes. The signal is a heuristic, not a guarantee.</div>
 </main>
 <script>
 (()=>{"use strict";
@@ -177,7 +177,7 @@ function timer(){
   $("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
 }
 
-$("refreshBtn").addEventListener("click",()=>{loadKalshi();refreshSpot()});
+$("refresh").addEventListener("click",()=>{loadKalshi();refreshSpot()});
 render();
 loadKalshi();
 refreshSpot();
