@@ -39,35 +39,58 @@ button{border:1px solid var(--line);background:#1a232e;color:var(--text);border-
 <div class="note">Signal is a heuristic, not a guarantee. Kalshi says BTC 15-minute contracts resolve from CF Benchmarks' BRTI; the final value is the average of 60 one-second observations during the final minute.</div>
 </main>
 <script>
-(()=>{const SER="KXBTC15M";const BASES=["https://api.elections.kalshi.com/trade-api/v2"];const PROX=[u=>"https://r.jina.ai/"+u,u=>"https://corsproxy.io/?"+encodeURIComponent(u),u=>"https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u)];let market=null,spot=NaN,h=[],sock=null,lastErr="";
+(()=>{const SER="KXBTC15M";const BASES=["https://external-api.kalshi.com/trade-api/v2"];const PROX=[u=>"https://r.jina.ai/"+u,u=>"https://corsproxy.io/?"+encodeURIComponent(u),u=>"https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u)];let market=null,spot=NaN,h=[],sock=null,lastErr="";
 const $=x=>document.getElementById(x),money=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}),p3=n=>(n>=0?"+":"")+n.toFixed(3)+"%",sq=(x,s)=>.5+.5*Math.tanh(x/s);
 async function json(url){
-  const urls=PROX.map(f=>f(url));
-  let last;
-  for(const u of urls){
-    try{
-      const r=await fetch(u,{cache:"no-store"});
-      if(!r.ok)throw Error("HTTP "+r.status);
-      const text=await r.text();
-      try{return JSON.parse(text)}catch(_){}
-      try{
-        const wrapped=JSON.parse(text);
-        if(wrapped&&typeof wrapped.content==="string"){
-          try{return JSON.parse(wrapped.content)}catch(_){}
-        }
-      }catch(_){}
-      throw Error("Invalid JSON response");
-    }catch(e){last=e}
-  }
-  throw last||Error("Kalshi data could not be loaded");
+  const r=await fetch(url,{cache:"no-store",mode:"cors"});
+  if(!r.ok) throw Error("Kalshi HTTP "+r.status);
+  return await r.json();
 }
 async function getMarket(){let last;for(const b of BASES){try{const d=await json(b+"/markets?series_ticker="+SER+"&status=open&limit=100");const a=(d.markets||[]).filter(m=>Date.parse(m.close_time||"")>Date.now()).sort((x,y)=>Date.parse(x.close_time)-Date.parse(y.close_time));if(a[0])return a[0]}catch(e){last=e}}throw last||Error("No open KXBTC15M market")}
-function target(m){for(const k of ["floor_strike","functional_strike","custom_strike"]){const n=Number(m?.[k]);if(Number.isFinite(n)&&n>0)return n}const s=(m?.yes_sub_title||"").match(/\$[0-9,.]+/);return s?Number(s[0].replace(/[$,]/g,"")):null}
+function target(m){for(const k of ["floor_strike","functional_strike","custom_strike","floor_strike_dollars"]){const n=Number(m?.[k]);if(Number.isFinite(n)&&n>0)return n}const s=(m?.yes_sub_title||"").match(/\$[0-9,.]+/);return s?Number(s[0].replace(/[$,]/g,"")):null}
 function kp(m){const b=Number(m?.yes_bid_dollars),a=Number(m?.yes_ask_dollars),l=Number(m?.last_price_dollars);if(Number.isFinite(b)&&Number.isFinite(a))return Math.max(0,Math.min(1,(b+a)/2));if(Number.isFinite(l))return Math.max(0,Math.min(1,l));return null}
 function model(){if(!market||!Number.isFinite(spot))return null;const tg=target(market),k=kp(market),gap=tg?(spot-tg)/tg:0,sp=tg?sq(gap,.0015):.5;let mp=.5,mc=0;const now=Date.now();let base=null;for(let i=h.length-1;i>=0;i--){if((now-h[i].t)/1000>=45){base=h[i].p;break}}if(base==null&&h.length)base=h[0].p;if(base){mc=(spot-base)/base;mp=sq(mc,.0008)}const combo=(k==null)?(.7*sp+.3*mp):(.6*k+.25*sp+.15*mp);const direction=combo>=.5?"HIGHER":"LOWER";const confidence=Math.max(50,Math.min(99,Math.round(50+Math.abs(combo-.5)*100)));return{tg,k,sp,mp,mc,gap,direction,confidence}}
 function render(){ $("spot").textContent=Number.isFinite(spot)?money(spot):"—";$("target").textContent=market&&target(market)?money(target(market)):"—";$("kp").textContent=market&&kp(market)!=null?(kp(market)*100).toFixed(1)+"%":"—";$("ticker").textContent=market?.ticker||"—";const m=model();$("dir").textContent=m?.direction||"WAITING";$("dir").className="dir "+(m?.direction==="HIGHER"?"up":m?.direction==="LOWER"?"down":"wait");$("conf").textContent=m?m.confidence+"%":"—";$("fill").style.width=(m?.confidence||0)+"%";$("gap").textContent=m?.tg?p3(m.gap*100):"—";$("mom").textContent=m?p3(m.mc*100):"—";$("sp").textContent=m?Math.round(m.sp*100)+"% UP":"—";$("mp").textContent=m?Math.round(m.mp*100)+"% UP":"—";$("reason").textContent=m?"Model leans "+m.direction+". BTC is "+Math.abs(m.gap*100).toFixed(3)+"% "+(m.gap>=0?"above":"below")+" the Kalshi target; recent momentum is "+p3(m.mc*100)+".":"Waiting for enough live data.";$("err").textContent=lastErr?("Data issue: "+lastErr):""}
 function timer(){if(!market?.close_time){$("timer").textContent="—";return}let s=Math.max(0,Math.floor((Date.parse(market.close_time)-Date.now())/1000));$("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")}
-function startBTC(){try{sock=new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@trade");sock.onopen=()=>{$("status").textContent="LIVE";$("status").style.color="var(--green)"};sock.onmessage=e=>{const x=Number(JSON.parse(e.data).p);if(x>0){spot=x;h.push({t:Date.now(),p:x});h=h.filter(v=>v.t>Date.now()-360000);render()}};sock.onclose=()=>setTimeout(startBTC,1500);sock.onerror=()=>{}}catch(e){setTimeout(startBTC,1500)}}
-async function refresh(){try{const m=await getMarket();const changed=market&&market.ticker!==m.ticker;market=m;if(changed)h=[];lastErr="";$("refresh").textContent=new Date().toLocaleTimeString();if(!sock||sock.readyState!==1)$("status").textContent="KALSHI LIVE / BTC CONNECTING";render()}catch(e){lastErr=e?.message||String(e);$("status").textContent="DATA ERROR";render()}}
+function startBTC(){
+  try{
+    sock=new WebSocket("wss://ws-feed.exchange.coinbase.com");
+    sock.onopen=()=>{
+      $("status").textContent="LIVE";
+      $("status").style.color="var(--green)";
+      sock.send(JSON.stringify({type:"subscribe",channels:[{name:"ticker",product_ids:["BTC-USD"]}]}));
+    };
+    sock.onmessage=e=>{
+      try{
+        const d=JSON.parse(e.data), x=Number(d.price);
+        if(x>0){
+          spot=x;
+          h.push({t:Date.now(),p:x});
+          h=h.filter(v=>v.t>Date.now()-360000);
+          render();
+        }
+      }catch(_){}
+    };
+    sock.onclose=()=>setTimeout(startBTC,1500);
+    sock.onerror=()=>{ try{sock.close()}catch(_){} };
+  }catch(e){ setTimeout(startBTC,1500); }
+}
+async function refresh(){
+  try{
+    const m=await getMarket();
+    const changed=market&&market.ticker!==m.ticker;
+    market=m;
+    if(changed) h=[];
+    lastErr="";
+    $("refresh").textContent=new Date().toLocaleTimeString();
+    if(sock&&sock.readyState===1) $("status").textContent="LIVE";
+    else $("status").textContent="KALSHI LIVE / BTC CONNECTING";
+    render();
+  }catch(e){
+    lastErr=(e&&e.message)?e.message:"Kalshi request failed";
+    $("status").textContent="KALSHI ERROR";
+    render();
+  }
+}
 $("refreshBtn").onclick=refresh;startBTC();refresh();setInterval(timer,250);setInterval(refresh,5000);})();
 </script></body></html>
