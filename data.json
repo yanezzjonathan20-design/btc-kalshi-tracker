@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-25T10:21:45.509Z",
+  "generated_at": "2026-09-25T10:22:06.205Z",
   "ok": true,
   "source": "Kalshi public market data API",
   "series": "KXBTC15M",
@@ -10,10 +10,10 @@
       "title": "BTC price up in next 15 mins?",
       "close_time": "2026-09-25T10:30:00Z",
       "target": 84484.73,
-      "yes_bid": 0.37,
-      "yes_ask": 0.38,
-      "yes_probability": 0.375,
-      "last_price": 0.38
+      "yes_bid": 0.4,
+      "yes_ask": 0.41,
+      "yes_probability": 0.405,
+      "last_price": 0.41
     }
   ],
   "error": "No"
