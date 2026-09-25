@@ -1,18 +1,18 @@
 {
-  "generated_at": "2026-09-25T09:57:53.798Z",
+  "generated_at": "2026-09-25T10:08:14.114Z",
   "ok": true,
   "source": "Kalshi public market data API",
   "series": "KXBTC15M",
   "market": {
-    "ticker": "KXBTC15M-26SEP250600-00",
-    "event_ticker": "KXBTC15M-26SEP250600",
+    "ticker": "KXBTC15M-26SEP250615-15",
+    "event_ticker": "KXBTC15M-26SEP250615",
     "title": "BTC price up in next 15 mins?",
-    "close_time": "2026-09-25T10:00:00Z",
-    "target": 84629.23,
-    "yes_bid": 0.14,
-    "yes_ask": 0.15,
-    "yes_probability": 0.14500000000000002,
-    "last_price": 0.15
+    "close_time": "2026-09-25T10:15:00Z",
+    "target": 84583.18,
+    "yes_bid": 0.019,
+    "yes_ask": 0.02,
+    "yes_probability": 0.0195,
+    "last_price": 0.02
   },
   "error": null
 }
