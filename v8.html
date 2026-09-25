@@ -47,7 +47,7 @@ let market=null,spot=NaN,baseline=NaN,baselineTicker=null,history=[],ws=null,las
 function target(m){const n=Number(m?.target);return Number.isFinite(n)&&n>0?n:null}
 function yes(m){const n=Number(m?.yes_probability);return Number.isFinite(n)?n:null}
 
-function setStatus(t,ok=false){$("status").textContent=t;$("status").style.color=ok?"var(--green)":"var(--text")}
+function setStatus(t,ok=false){$("status").textContent=t;$("status").style.color=ok?"var(--green)":"var(--text)}
 
 function setMarket(next){
   if(!next)return;
@@ -129,10 +129,7 @@ async function refreshSpot(){
   if(restBusy)return;
   restBusy=true;
   try{
-    const ctrl=new AbortController();
-    const t=setTimeout(()=>ctrl.abort(),4000);
-    const r=await fetch("https://api.coinbase.com/v2/prices/BTC-USD/spot?t="+Date.now(),{cache:"no-store",signal:ctrl.signal});
-    clearTimeout(t);
+    const r=await fetch("https://api.coinbase.com/v2/prices/BTC-USD/spot?t="+Date.now(),{cache:"no-store"});
     if(!r.ok)throw Error("BTC HTTP "+r.status);
     const d=await r.json(),p=Number(d?.data?.amount);
     if(!Number.isFinite(p)||p<=0)throw Error("Invalid BTC price");
