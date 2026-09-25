@@ -18,7 +18,7 @@ h1{font-size:29px;margin:0}.sub{color:var(--muted);margin-top:5px}.pill{padding:
 @media(max-width:720px){.grid{grid-template-columns:1fr 1fr}.rows{grid-template-columns:1fr}}
 </style></head>
 <body><main>
-<div class="top"><div><h1>BTC 15-Minute Kalshi Tracker</h1><div class="sub">Live BTC + live/fallback KXBTC15M market data</div></div><div id="status" class="pill">CONNECTING</div></div>
+<div class="top"><div><h1>BTC 15-Minute Kalshi Tracker</h1><div class="sub">Live BTC + Kalshi published market snapshot</div></div><div id="status" class="pill">CONNECTING</div></div>
 <div class="grid">
 <div class="card"><div class="label">BTC spot</div><div id="spot" class="v">—</div></div>
 <div class="card"><div class="label">Kalshi target</div><div id="target" class="v">—</div></div>
@@ -26,7 +26,7 @@ h1{font-size:29px;margin:0}.sub{color:var(--muted);margin-top:5px}.pill{padding:
 <div class="card"><div class="label">Kalshi UP</div><div id="kp" class="v">—</div></div>
 </div>
 <section class="signal"><div class="srow"><div><div class="label">15-minute direction signal</div><div id="dir" class="dir wait">WAITING</div></div><div><div class="label" style="text-align:right">Model confidence</div><div id="conf" class="conf">—</div></div></div>
-<div class="bar"><div id="fill" class="fill"></div></div><div id="reason" class="reason">Starting live feeds…</div></section>
+<div class="bar"><div id="fill" class="fill"></div></div><div id="reason" class="reason">Loading BTC + Kalshi snapshot…</div></section>
 <section class="details"><div class="rows">
 <div class="row"><span>BTC vs target</span><strong id="gap">—</strong></div>
 <div class="row"><span>15-minute starting BTC</span><strong id="startPrice">—</strong></div><div class="row"><span>Recent momentum</span><strong id="mom">—</strong></div>
@@ -35,7 +35,7 @@ h1{font-size:29px;margin:0}.sub{color:var(--muted);margin-top:5px}.pill{padding:
 <div class="row"><span>Contract</span><strong id="ticker">—</strong></div>
 <div class="row"><span>Kalshi data updated</span><strong id="updated">—</strong></div>
 </div><button id="refresh" type="button">Refresh Kalshi data</button><div id="error" class="err"></div></section>
-<div class="note">Kalshi is polled directly when the browser can reach the public API; the GitHub feed is the fallback. The tracker resets the 15-minute baseline when the contract changes. The signal is a heuristic, not a guarantee. The signal is a heuristic, not a guarantee.</div>
+<div class="note">Kalshi data comes through the published GitHub feed because Safari browsers may block direct Kalshi requests. BTC spot is refreshed in the browser. The signal is a heuristic, not a guarantee. The signal is a heuristic, not a guarantee.</div>
 </main>
 <script>
 (()=>{"use strict";
@@ -106,68 +106,25 @@ function render(){
   }
 }
 
-async function fetchJSON(url,timeoutMs=1800){
-  const ac=new AbortController();
-  const t=setTimeout(()=>ac.abort(),timeoutMs);
-  try{
-    const r=await fetch(url,{cache:"no-store",signal:ac.signal});
-    if(!r.ok)throw Error("HTTP "+r.status);
-    return await r.json();
-  }finally{clearTimeout(t)}
-}
-
-function normalizeMarkets(raw){
-  return (Array.isArray(raw?.markets)?raw.markets:[])
-    .map(m=>{
-      const bid=Number(m?.yes_bid_dollars ?? m?.yes_bid);
-      const ask=Number(m?.yes_ask_dollars ?? m?.yes_ask);
-      const last=Number(m?.last_price_dollars ?? m?.last_price);
-      const yes=(Number.isFinite(bid)&&Number.isFinite(ask))?((bid+ask)/2):(Number.isFinite(last)?last:null);
-      const strike=[m?.floor_strike,m?.floor_strike_dollars,m?.functional_strike,m?.custom_strike].map(Number).find(Number.isFinite);
-      return {
-        ticker:m?.ticker||null,
-        event_ticker:m?.event_ticker||null,
-        title:m?.title||"BTC price up in next 15 mins?",
-        close_time:m?.close_time||m?.expected_expiration_time||null,
-        target:Number.isFinite(strike)?strike:null,
-        yes_bid:Number.isFinite(bid)?bid:null,
-        yes_ask:Number.isFinite(ask)?ask:null,
-        yes_probability:yes,
-        last_price:Number.isFinite(last)?last:null
-      };
-    });
-}
-
 async function loadKalshi(){
-  let liveError="";
   try{
-    const raw=await fetchJSON("https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXBTC15M&status=open&limit=1000",1800);
-    const liveMarkets=normalizeMarkets(raw);
-    const next=selectMarket(liveMarkets);
-    if(next){
-      lastDataAt=new Date().toISOString();
-      setMarket(next);
-      $("error").textContent="";
-      setStatus(Number.isFinite(spot)?"LIVE":"KALSHI LIVE / BTC CONNECTING",true);
-      render();
-      return;
-    }
-    liveError="Live Kalshi returned no open KXBTC15M market.";
-  }catch(e){
-    liveError=(e?.name==="AbortError"?"Live Kalshi request timed out.":(e?.message||String(e)));
-  }
-
-  try{
-    const d=await fetchJSON("./data.json?t="+Date.now(),3000);
+    const r=await fetch("./data.json?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok)throw Error("data.json HTTP "+r.status);
+    const d=await r.json();
     lastDataAt=d.generated_at||null;
-    const next=selectMarket(d.markets);
+    if(Number.isFinite(Number(d.btc_spot)) && !Number.isFinite(spot)){
+      spot=Number(d.btc_spot);
+      history.push({t:Date.now(),p:spot});
+    }
+    const future=selectMarket(d.markets);
+    const next=future || (Array.isArray(d.markets)&&d.markets[0]) || null;
     if(next)setMarket(next);
-    $("error").textContent=next?"Live Kalshi unavailable; using the published fallback feed.":"Kalshi feed unavailable: "+liveError;
-    setStatus(next?(Number.isFinite(spot)?"LIVE / FALLBACK":"KALSHI FALLBACK / BTC CONNECTING"):"WAITING FOR KALSHI",!!next);
+    $("error").textContent=d.error==="No"?"":"Published feed status: "+d.error;
+    setStatus(next?(future?"LIVE SNAPSHOT":"STALE SNAPSHOT"):"FEED EMPTY",true);
     render();
   }catch(e){
-    $("error").textContent="Kalshi unavailable: "+liveError;
-    setStatus(Number.isFinite(spot)?"BTC LIVE / KALSHI OFFLINE":"CONNECTING");
+    $("error").textContent="Published feed unavailable: "+(e?.message||String(e));
+    setStatus("FEED ERROR");
     render();
   }
 }
@@ -180,35 +137,14 @@ async function refreshSpot(){
     const d=await r.json(),p=Number(d?.data?.amount);
     if(!Number.isFinite(p)||p<=0)throw Error("Invalid BTC price");
     spot=p;
-    if(market&&baselineTicker===market.ticker&&(!Number.isFinite(baseline)||baseline<=0)){
-      baseline=p;
-      $("startPrice").textContent=money(baseline);
-    }
+    if(market&&baselineTicker===market.ticker&&(!Number.isFinite(baseline)||baseline<=0))baseline=p;
     history.push({t:Date.now(),p});
     history=history.filter(x=>x.t>Date.now()-360000);
+    if(market)setStatus("LIVE BTC / KALSHI SNAPSHOT",true);
     render();
   }catch(e){
-    // Keep an existing live BTC WebSocket price when REST is unavailable.
+    if(Number.isFinite(spot))setStatus("BTC SNAPSHOT",true);
   }finally{restBusy=false}
-}
-
-function connectBTC(){
-  try{
-    ws=new WebSocket("wss://ws-feed.exchange.coinbase.com");
-    ws.onopen=()=>ws.send(JSON.stringify({type:"subscribe",channels:[{name:"ticker",product_ids:["BTC-USD"]}]}));
-    ws.onmessage=e=>{
-      try{
-        const d=JSON.parse(e.data),p=Number(d.price);
-        if(!Number.isFinite(p)||p<=0)return;
-        spot=p;
-        if(market&&baselineTicker===market.ticker&&(!Number.isFinite(baseline)||baseline<=0))baseline=p;
-        history.push({t:Date.now(),p});
-        history=history.filter(x=>x.t>Date.now()-360000);
-        render();
-      }catch(_){}
-    };
-    ws.onclose=()=>setTimeout(connectBTC,1000);
-  }catch(_){setTimeout(connectBTC,1000)}
 }
 
 function timer(){
@@ -227,7 +163,6 @@ $("refresh").addEventListener("click",()=>{loadKalshi();refreshSpot()});
 render();
 loadKalshi();
 refreshSpot();
-connectBTC();
 setInterval(timer,250);
 setInterval(loadKalshi,2000);
 setInterval(refreshSpot,2000);
