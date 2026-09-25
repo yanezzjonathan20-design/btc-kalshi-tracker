@@ -29,8 +29,8 @@ h1{font-size:29px;margin:0}.sub{color:var(--muted);margin-top:5px}.pill{padding:
 <div class="bar"><div id="fill" class="fill"></div></div><div id="reason" class="reason">Starting live feeds…</div></section>
 <section class="details"><div class="rows">
 <div class="row"><span>BTC vs target</span><strong id="gap">—</strong></div>
-<div class="row"><span>Recent momentum</span><strong id="mom">—</strong></div>
-<div class="row"><span>Spot signal</span><strong id="sp">—</strong></div>
+<div class="row"><span>15-minute starting BTC</span><strong id="startPrice">—</strong></div><div class="row"><span>Recent momentum</span><strong id="mom">—</strong></div>
+<div class="row"><span>Change from 15-min start</span><strong id="startChange">—</strong></div><div class="row"><span>Spot signal</span><strong id="sp">—</strong></div>
 <div class="row"><span>Momentum signal</span><strong id="mp">—</strong></div>
 <div class="row"><span>Contract</span><strong id="ticker">—</strong></div>
 <div class="row"><span>Kalshi data updated</span><strong id="updated">—</strong></div>
@@ -39,170 +39,131 @@ h1{font-size:29px;margin:0}.sub{color:var(--muted);margin-top:5px}.pill{padding:
 </main>
 <script>
 (()=>{"use strict";
-const API="https://external-api.kalshi.com/trade-api/v2";
-const SERIES="KXBTC15M";
-let market=null,spot=NaN,baseline=NaN,baselineTicker=null,prices=[],ws=null,kalshiBusy=false,lastKalshiOk=false;
-
 const $=id=>document.getElementById(id);
 const money=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct=n=>(n>=0?"+":"")+n.toFixed(3)+"%";
+let market=null,spot=NaN,baseline=NaN,baselineTicker=null,history=[],ws=null,lastDataAt=null;
 
-function status(text,ok=false){
-  $("status").textContent=text;
-  $("status").style.color=ok?"var(--green)":"var(--text)";
-}
+function target(m){const n=Number(m?.target);return Number.isFinite(n)&&n>0?n:null}
+function yes(m){const n=Number(m?.yes_probability);return Number.isFinite(n)?n:null}
 
-function targetOf(m){
-  for(const k of ["floor_strike","floor_strike_dollars","functional_strike","custom_strike"]){
-    const n=Number(m?.[k]);
-    if(Number.isFinite(n)&&n>0)return n;
-  }
-  return null;
-}
-
-function yesOf(m){
-  const b=Number(m?.yes_bid_dollars),a=Number(m?.yes_ask_dollars);
-  const l=Number(m?.last_price_dollars);
-  if(Number.isFinite(b)&&Number.isFinite(a))return Math.max(0,Math.min(1,(b+a)/2));
-  if(Number.isFinite(l))return Math.max(0,Math.min(1,l));
-  return null;
-}
-
-function signalModel(){
+function model(){
   if(!market||!Number.isFinite(spot))return null;
-  const tg=targetOf(market);
-  const k=yesOf(market);
+  const tg=target(market),kp=yes(market);
   const gap=tg?(spot-tg)/tg:0;
-  let momentum=0;
-  let old=null;
-  const now=Date.now();
-  for(let i=prices.length-1;i>=0;i--){
-    if(now-prices[i].t>=45000){old=prices[i].p;break}
-  }
-  if(old==null&&prices.length>1)old=prices[0].p;
-  if(old>0)momentum=(spot-old)/old;
-
-  // Directional heuristic. Kalshi price is treated as the market-implied input;
-  // spot-vs-target and recent momentum are secondary.
-  const spotSig=tg?0.5+0.5*Math.tanh(gap/0.0015):0.5;
-  const momSig=0.5+0.5*Math.tanh(momentum/0.0008);
-  const combo=k==null?(0.70*spotSig+0.30*momSig):(0.60*k+0.25*spotSig+0.15*momSig);
+  const spotSig=tg?.(0.5+0.5*Math.tanh(gap/0.0015)):.5;
+  let base=null;
+  for(let i=history.length-1;i>=0;i--)if(Date.now()-history[i].t>=45000){base=history[i].p;break}
+  if(base==null&&history.length>1)base=history[0].p;
+  const mom=base>0?(spot-base)/base:0;
+  const momSig=0.5+0.5*Math.tanh(mom/0.0008);
+  const combo=kp==null?(0.70*spotSig+0.30*momSig):(0.60*kp+0.25*spotSig+0.15*momSig);
   const dir=combo>=0.5?"HIGHER":"LOWER";
-  const confidence=Math.max(50,Math.min(99,Math.round(50+Math.abs(combo-0.5)*100)));
+  const confidence=Math.max(50,Math.min(99,Math.round(50+Math.abs(combo-.5)*100)));
   const fromStart=baseline>0?(spot-baseline)/baseline:0;
-  return{tg,k,gap,momentum,dir,confidence,fromStart,spotSig,momSig};
+  return{tg,kp,gap,mom,dir,confidence,fromStart,spotSig,momSig};
 }
 
 function render(){
   $("spot").textContent=Number.isFinite(spot)?money(spot):"—";
-  const tg=targetOf(market||{});
-  const kp=yesOf(market||{});
-  $("target").textContent=tg?money(tg):"—";
-  $("kp").textContent=kp==null?"—":(kp*100).toFixed(1)+"%";
+  $("target").textContent=target(market)?money(target(market)):"—";
+  $("kp").textContent=yes(market)==null?"—":(yes(market)*100).toFixed(1)+"%";
   $("ticker").textContent=market?.ticker||"—";
-  $("gap").textContent=signalModel()?pct(signalModel().gap*100):"—";
-  $("mom").textContent=signalModel()?pct(signalModel().momentum*100):"—";
-  $("refresh").textContent=lastKalshiOk?new Date().toLocaleTimeString():"—";
-
-  const m=signalModel();
+  $("startPrice").textContent=Number.isFinite(baseline)?money(baseline):"—";
+  const m=model();
   $("dir").textContent=m?.dir||"WAITING";
   $("dir").className="dir "+(m?.dir==="HIGHER"?"up":m?.dir==="LOWER"?"down":"wait");
   $("conf").textContent=m?m.confidence+"%":"—";
   $("fill").style.width=(m?.confidence||0)+"%";
+  $("gap").textContent=m?pct(m.gap*100):"—";
+  $("mom").textContent=m?pct(m.mom*100):"—";
   $("sp").textContent=m?Math.round(m.spotSig*100)+"% UP":"—";
   $("mp").textContent=m?Math.round(m.momSig*100)+"% UP":"—";
   $("startChange").textContent=m?pct(m.fromStart*100):"—";
-
+  $("updated").textContent=lastDataAt?new Date(lastDataAt).toLocaleTimeString():"—";
   if(m){
-    $("reason").textContent=
-      "Current contract signal: "+m.dir+". BTC is "+Math.abs(m.gap*100).toFixed(3)+"% "+
-      (m.gap>=0?"above":"below")+" the Kalshi target, and "+pct(m.momentum*100)+
-      " over the recent momentum window. The 15-minute baseline is "+money(baseline)+".";
+    $("reason").textContent="Current 15-minute contract: "+m.dir+". BTC is "+Math.abs(m.gap*100).toFixed(3)+"% "+(m.gap>=0?"above":"below")+" the target, with recent momentum at "+pct(m.mom*100)+". Baseline reset when this contract began.";
   }else{
-    $("reason").textContent="Waiting for the current 15-minute Kalshi contract and BTC stream.";
+    $("reason").textContent="Waiting for the current Kalshi contract and BTC price.";
   }
 }
 
-function renderTimer(){
-  if(!market?.close_time){$("timer").textContent="—";return}
-  const ms=Date.parse(market.close_time)-Date.now();
-  if(ms<=0){$("timer").textContent="00:00";return}
-  const s=Math.floor(ms/1000);
-  $("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+function rollToCorrectMarket(markets){
+  const now=Date.now();
+  const next=(markets||[])
+    .filter(m=>Date.parse(m.close_time||"")>now)
+    .sort((a,b)=>Date.parse(a.close_time)-Date.parse(b.close_time))[0]||null;
+  if(!next)return false;
+  if(!market||market.ticker!==next.ticker){
+    market=next;
+    baseline=Number.isFinite(spot)?spot:NaN;
+    baselineTicker=next.ticker;
+    history=[];
+  }else{
+    market=next;
+  }
+  return true;
 }
 
-async function fetchMarket(){
-  if(kalshiBusy)return;
-  kalshiBusy=true;
+async function loadKalshi(){
   try{
-    const url=API+"/markets?series_ticker="+encodeURIComponent(SERIES)+"&status=open&limit=100";
-    const resp=await fetch(url,{cache:"no-store",credentials:"omit"});
-    if(!resp.ok)throw new Error("Kalshi HTTP "+resp.status);
-    const data=await resp.json();
-    const now=Date.now();
-    const markets=(data.markets||[])
-      .filter(m=>m.status==="active"||m.status==="open")
-      .filter(m=>Date.parse(m.close_time||"")>now)
-      .sort((a,b)=>Date.parse(a.close_time)-Date.parse(b.close_time));
-
-    if(!markets.length)throw new Error("No open KXBTC15M contract was returned.");
-
-    const next=markets[0];
-    if(!market || market.ticker!==next.ticker){
-      market=next;
-      prices=[];
-      baseline=Number.isFinite(spot)?spot:NaN;
-      baselineTicker=next.ticker;
-      $("reason").textContent="New 15-minute contract detected. Baseline reset to "+(Number.isFinite(baseline)?money(baseline):"BTC stream pending")+".";
+    const r=await fetch("./data.json?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok)throw Error("data.json HTTP "+r.status);
+    const d=await r.json();
+    lastDataAt=d.generated_at||null;
+    const ok=rollToCorrectMarket(d.markets||[]);
+    if(!ok){
+      market=null;
+      $("status").textContent="WAITING FOR NEXT KALSHI ROUND";
+      $("error").textContent=d.error||"No open KXBTC15M contract is currently cached.";
     }else{
-      market=next;
-      if(baselineTicker!==market.ticker){
-        baselineTicker=market.ticker;
-        baseline=Number.isFinite(spot)?spot:baseline;
-        prices=[];
-      }
+      $("status").textContent="LIVE";
+      $("status").style.color="var(--green)";
+      $("error").textContent="";
     }
-    lastKalshiOk=true;
-    $("error").textContent="";
-    status("LIVE",true);
     render();
   }catch(e){
-    lastKalshiOk=false;
+    $("status").textContent="KALSHI DATA ERROR";
     $("error").textContent="Kalshi data issue: "+(e?.message||String(e));
-    if(!Number.isFinite(spot))status("CONNECTING");
-    else status("BTC LIVE / KALSHI ERROR");
-  }finally{
-    kalshiBusy=false;
+    render();
   }
 }
 
 function connectBTC(){
   try{
     ws=new WebSocket("wss://ws-feed.exchange.coinbase.com");
-    ws.onopen=()=>{
-      ws.send(JSON.stringify({type:"subscribe",channels:[{name:"ticker",product_ids:["BTC-USD"]}]}));
-    };
+    ws.onopen=()=>{ws.send(JSON.stringify({type:"subscribe",channels:[{name:"ticker",product_ids:["BTC-USD"]}]}))};
     ws.onmessage=e=>{
       try{
         const d=JSON.parse(e.data),p=Number(d.price);
         if(!Number.isFinite(p)||p<=0)return;
         spot=p;
-        if(market&&baselineTicker===market.ticker&&(!Number.isFinite(baseline)||baseline<=0))baseline=p;
-        prices.push({t:Date.now(),p});
-        prices=prices.filter(v=>v.t>Date.now()-360000);
+        history.push({t:Date.now(),p});
+        history=history.filter(x=>x.t>Date.now()-360000);
         render();
       }catch(_){}
     };
     ws.onclose=()=>setTimeout(connectBTC,1000);
-    ws.onerror=()=>{};
   }catch(_){setTimeout(connectBTC,1000)}
 }
 
-$("refreshBtn").addEventListener("click",fetchMarket);
+function timer(){
+  if(!market?.close_time){$("timer").textContent="—";return}
+  const ms=Date.parse(market.close_time)-Date.now();
+  if(ms<=0){
+    $("timer").textContent="00:00";
+    loadKalshi();
+    return;
+  }
+  const sec=Math.floor(ms/1000);
+  $("timer").textContent=String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");
+}
+
+$("refreshBtn").addEventListener("click",loadKalshi);
 connectBTC();
-fetchMarket();
-renderTimer();
-setInterval(renderTimer,250);
-setInterval(fetchMarket,2000);
+loadKalshi();
+render();
+setInterval(timer,250);
+setInterval(loadKalshi,2000);
 })();
 </script></body></html>
