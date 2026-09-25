@@ -91,4 +91,6 @@ jobs:
             exit 0
           fi
           git commit -m "Update live Kalshi BTC data"
+          git fetch origin main
+          git rebase origin/main
           git push
