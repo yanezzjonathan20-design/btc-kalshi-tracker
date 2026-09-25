@@ -24,6 +24,7 @@ jobs:
 
           API="https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXBTC15M&status=all&limit=1000"
           curl -fsSL --retry 3 --retry-delay 1 "$API" -o kalshi_raw.json
+          BTC=$(curl -fsSL --retry 3 --retry-delay 1 "https://api.coinbase.com/v2/prices/BTC-USD/spot" | node -e 'let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s); process.stdout.write(String(j.data.amount))})')
 
           node <<'NODE'
           const fs = require('fs');
@@ -78,6 +79,7 @@ jobs:
               source:"Kalshi public market data API",
               series:"KXBTC15M",
               markets,
+              btc_spot:Number(BTC),
               error:markets.length?"No":"No open KXBTC15M markets were returned."
             },null,2)+"\n"
           );
