@@ -22,7 +22,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          API="https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXBTC15M&status=open&limit=100"
+          API="https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXBTC15M&status=all&limit=1000"
           curl -fsSL --retry 3 --retry-delay 1 "$API" -o kalshi_raw.json
 
           node <<'NODE'
@@ -38,7 +38,8 @@ jobs:
           const markets=(raw.markets||[])
             .filter(m=>{
               const close=Date.parse(m.close_time||m.expected_expiration_time||"");
-              return Number.isFinite(close) && close>now;
+              const status=(m.status||"").toLowerCase();
+              return Number.isFinite(close) && close>now && status!=="determined" && status!=="finalized";
             })
             .sort((a,b)=>Date.parse(a.close_time)-Date.parse(b.close_time))
             .slice(0,8)
