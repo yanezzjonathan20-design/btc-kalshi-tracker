@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch current Kalshi BTC 15-minute market
+      - name: Fetch open Kalshi BTC 15-minute markets
         shell: bash
         run: |
           set -euo pipefail
@@ -30,53 +30,56 @@ jobs:
           const raw = JSON.parse(fs.readFileSync('kalshi_raw.json','utf8'));
           const now = Date.now();
 
-          const markets = (raw.markets || [])
-            .filter(m => {
-              const close = Date.parse(m.close_time || m.expected_expiration_time || "");
-              return Number.isFinite(close) && close > now;
-            })
-            .sort((a,b) => Date.parse(a.close_time) - Date.parse(b.close_time));
-
-          const m = markets[0] || null;
-
           function n(v){
-            const x = Number(v);
-            return Number.isFinite(x) ? x : null;
+            const x=Number(v);
+            return Number.isFinite(x)?x:null;
           }
 
-          const target =
-            n(m?.floor_strike) ??
-            n(m?.floor_strike_dollars) ??
-            n(m?.functional_strike) ??
-            n(m?.custom_strike);
+          const markets=(raw.markets||[])
+            .filter(m=>{
+              const close=Date.parse(m.close_time||m.expected_expiration_time||"");
+              return Number.isFinite(close) && close>now;
+            })
+            .sort((a,b)=>Date.parse(a.close_time)-Date.parse(b.close_time))
+            .slice(0,8)
+            .map(m=>{
+              const bid=n(m.yes_bid_dollars);
+              const ask=n(m.yes_ask_dollars);
+              const last=n(m.last_price_dollars);
+              let yes=null;
+              if(bid!==null && ask!==null) yes=(bid+ask)/2;
+              else if(last!==null) yes=last;
 
-          const bid = n(m?.yes_bid_dollars);
-          const ask = n(m?.yes_ask_dollars);
-          const last = n(m?.last_price_dollars);
-          let yes = null;
-          if (bid !== null && ask !== null) yes = (bid + ask) / 2;
-          else if (last !== null) yes = last;
+              const target =
+                n(m.floor_strike) ??
+                n(m.floor_strike_dollars) ??
+                n(m.functional_strike) ??
+                n(m.custom_strike);
 
-          const payload = {
-            generated_at: new Date().toISOString(),
-            ok: !!m,
-            source: "Kalshi public market data API",
-            series: "KXBTC15M",
-            market: m ? {
-              ticker: m.ticker || null,
-              event_ticker: m.event_ticker || null,
-              title: m.title || "BTC 15 min",
-              close_time: m.close_time || m.expected_expiration_time || null,
-              target: target,
-              yes_bid: bid,
-              yes_ask: ask,
-              yes_probability: yes,
-              last_price: last
-            } : null,
-            error: m ? null : "No open KXBTC15M market was returned."
-          };
+              return {
+                ticker:m.ticker||null,
+                event_ticker:m.event_ticker||null,
+                title:m.title||"BTC price up in next 15 mins?",
+                close_time:m.close_time||m.expected_expiration_time||null,
+                target,
+                yes_bid:bid,
+                yes_ask:ask,
+                yes_probability:yes,
+                last_price:last
+              };
+            });
 
-          fs.writeFileSync("data.json", JSON.stringify(payload, null, 2) + "\n");
+          fs.writeFileSync(
+            "data.json",
+            JSON.stringify({
+              generated_at:new Date().toISOString(),
+              ok:markets.length>0,
+              source:"Kalshi public market data API",
+              series:"KXBTC15M",
+              markets,
+              error:markets.length?"No":"No open KXBTC15M markets were returned."
+            },null,2)+"\n"
+          );
           NODE
 
       - name: Publish data
