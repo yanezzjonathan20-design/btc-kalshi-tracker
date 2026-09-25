@@ -1,0 +1,8 @@
+{
+  "generated_at": "2026-09-25T09:49:28.091Z",
+  "ok": false,
+  "source": "Kalshi public market data API",
+  "series": "KXBTC15M",
+  "market": null,
+  "error": "Waiting for the first GitHub Actions market-data update."
+}
